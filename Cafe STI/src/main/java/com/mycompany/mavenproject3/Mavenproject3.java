@@ -10,15 +10,13 @@ import java.awt.GridLayout;
 import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.ArrayList;
-import java.util.List;
+import java.sql.Connection;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.SwingUtilities;
 import javax.swing.plaf.basic.BasicButtonUI;
 
 public class Mavenproject3 extends JFrame implements Runnable {
@@ -28,9 +26,6 @@ public class Mavenproject3 extends JFrame implements Runnable {
     private BannerPanel bannerPanel;
     private JButton addProductButton;
     private JButton sellProductButton;
-    private List<Product> productList = new ArrayList<>();
-    public List<SaleRecord> sales = new ArrayList<>();
-    public List<Promotion> promotions = new ArrayList<>();
 
     public Mavenproject3() {
         setTitle("WK. STI Chill");
@@ -56,13 +51,6 @@ public class Mavenproject3 extends JFrame implements Runnable {
         titlePanel.add(titleLabel);
         add(titlePanel, BorderLayout.NORTH);
 
-        // Data produk awal
-        productList.add(new Product(1, "P001", "Americano", "Coffee", 10000, 10));
-        productList.add(new Product(2, "P002", "Pandan Latte", "Coffee", 20000, 10));
-        productList.add(new Product(3, "P003", "Aren Latte", "Coffee", 15000, 10));
-        productList.add(new Product(4, "P004", "Matcha Frappucino", "Tea", 28000, 10));
-        productList.add(new Product(5, "P005", "Jus Apel", "Juice", 17000, 10));
-
         this.text = getBannerTextFromProducts();
         this.x = -getFontMetrics(new Font("Arial", Font.BOLD, 18)).stringWidth(text);
 
@@ -84,15 +72,15 @@ public class Mavenproject3 extends JFrame implements Runnable {
         bottomPanel.add(sellProductButton);
 
         JButton customerButton = createRoundMenuButton("Customer", new Color(255, 255, 153), new Color(255, 215, 0));
-        customerButton.addActionListener(e -> new CustomerForm().setVisible(true));
+        customerButton.addActionListener(e -> new CustomerForm(this).setVisible(true));
         bottomPanel.add(customerButton);
 
         JButton reportButton = createRoundMenuButton("Laporan Penjualan", new Color(173, 216, 230), new Color(70, 130, 180));
-        reportButton.addActionListener(e -> new SalesReportForm(sales).setVisible(true));
+        reportButton.addActionListener(e -> new SalesReportForm(this).setVisible(true));
         bottomPanel.add(reportButton);
 
         JButton promoButton = createRoundMenuButton("Diskon & Promosi", new Color(255, 228, 181), new Color(255, 140, 0));
-        promoButton.addActionListener(e -> new PromotionForm(productList, promotions).setVisible(true));
+        promoButton.addActionListener(e -> new PromotionForm(this).setVisible(true));
         bottomPanel.add(promoButton);
 
         add(bottomPanel, BorderLayout.SOUTH);
@@ -170,22 +158,24 @@ public class Mavenproject3 extends JFrame implements Runnable {
     }
 
     public String getBannerTextFromProducts() {
-        StringBuilder sb = new StringBuilder("Menu yang tersedia: ");
-        for (int i = 0; i < productList.size(); i++) {
-            sb.append(productList.get(i).getName());
-            if (i < productList.size() - 1) {
-                sb.append(" | ");
-            }
+    StringBuilder sb = new StringBuilder("Menu yang tersedia: ");
+    try (Connection conn = DBUtil.getConnection();
+         java.sql.Statement stmt = conn.createStatement();
+         java.sql.ResultSet rs = stmt.executeQuery("SELECT name FROM product")) {
+        boolean first = true;
+        while (rs.next()) {
+            if (!first) sb.append(" | ");
+            sb.append(rs.getString("name"));
+            first = false;
         }
-        return sb.toString();
+    } catch (Exception e) {
+        sb.append("Gagal load produk");
     }
+    return sb.toString();
+}
 
     public void refreshBanner() {
         setBannerText(getBannerTextFromProducts());
-    }
-
-    public List<Product> getProductList() {
-        return productList;
     }
 
     @Override
@@ -206,14 +196,13 @@ public class Mavenproject3 extends JFrame implements Runnable {
     }
 
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            LoginDialog login = new LoginDialog(null);
-            login.setVisible(true);
-            if (login.isSucceeded()) {
-                new Mavenproject3();
-            } else {
-                System.exit(0);
-            }
-        });
+        LoginDialog login = new LoginDialog(null);
+        login.setVisible(true);
+
+        if (login.isSucceeded()) {
+            new Mavenproject3();
+        } else {
+            System.exit(0);
+        }
     }
 }

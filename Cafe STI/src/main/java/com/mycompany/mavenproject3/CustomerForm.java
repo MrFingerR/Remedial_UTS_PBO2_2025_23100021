@@ -1,8 +1,11 @@
 package com.mycompany.mavenproject3;
 
 import java.awt.BorderLayout;
-import java.util.ArrayList;
-import java.util.List;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.util.Vector;
 
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -21,27 +24,23 @@ public class CustomerForm extends JFrame {
     private JTextField nameField;
     private JComboBox<String> genderField;
     private JTextField umurField;
-    private JButton saveButton, editButton, deleteButton;
+    private JButton saveButton;
+    private JButton editButton;
+    private JButton deleteButton;
 
-    private List<Customer> customers = new ArrayList<>();
-    private int nextId = 1;
-
-    public CustomerForm() {
+    public CustomerForm(Mavenproject3 mainApp) {
         setTitle("WK. Cuan | Data Customer");
-        setSize(550, 400);
-        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        setSize(500, 400);
+        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setLocationRelativeTo(null);
-        setLayout(new BorderLayout());
 
-        // Panel Form
         JPanel formPanel = new JPanel();
-
         formPanel.add(new JLabel("Nama:"));
         nameField = new JTextField(10);
         formPanel.add(nameField);
 
-        formPanel.add(new JLabel("Jenis Kelamin:"));
-        genderField = new JComboBox<>(new String[]{"Laki-Laki", "Perempuan"});
+        formPanel.add(new JLabel("Gender:"));
+        genderField = new JComboBox<>(new String[]{"Laki-laki", "Perempuan"});
         formPanel.add(genderField);
 
         formPanel.add(new JLabel("Umur:"));
@@ -49,87 +48,150 @@ public class CustomerForm extends JFrame {
         formPanel.add(umurField);
 
         saveButton = new JButton("Simpan");
-        editButton = new JButton("Edit");
-        deleteButton = new JButton("Hapus");
-
         formPanel.add(saveButton);
+
+        editButton = new JButton("Edit");
         formPanel.add(editButton);
+
+        deleteButton = new JButton("Hapus");
         formPanel.add(deleteButton);
 
-        add(formPanel, BorderLayout.NORTH);
-
-    
-        tableModel = new DefaultTableModel(new String[]{"ID", "Nama", "Jenis Kelamin", "Umur"}, 0);
+        tableModel = new DefaultTableModel(new String[]{"ID", "Nama", "Gender", "Umur"}, 0);
         customerTable = new JTable(tableModel);
+        loadCustomerData();
+
+        add(formPanel, BorderLayout.NORTH);
         add(new JScrollPane(customerTable), BorderLayout.CENTER);
 
+        // Tombol Simpan (Insert/Update)
         saveButton.addActionListener(e -> {
             String name = nameField.getText();
-            String genderText = (String) genderField.getSelectedItem();
+            String gender = (String) genderField.getSelectedItem();
             String umurText = umurField.getText();
 
             if (name.isEmpty() || umurText.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Nama dan umur harus diisi!");
+                JOptionPane.showMessageDialog(this, "Semua field harus diisi!", "Peringatan", JOptionPane.WARNING_MESSAGE);
                 return;
             }
 
             try {
                 int umur = Integer.parseInt(umurText);
-                boolean gender = genderText.equals("Male");
+                boolean genderBool = gender.equals("Laki-laki");
 
                 int selectedRow = customerTable.getSelectedRow();
                 if (selectedRow != -1) {
-                    tableModel.setValueAt(name, selectedRow, 1);
-                    tableModel.setValueAt(genderText, selectedRow, 2);
-                    tableModel.setValueAt(umur, selectedRow, 3);
-
-                    Customer customer = customers.get(selectedRow);
-                    customer.setName(name);
-             
-                    customers.set(selectedRow, new Customer(customer.getId(), name, gender, umur));
-
+                    // Update
+                    int id = Integer.parseInt(tableModel.getValueAt(selectedRow, 0).toString());
+                    updateCustomer(id, name, genderBool, umur);
                     JOptionPane.showMessageDialog(this, "Data berhasil diperbarui.");
                 } else {
-                    Customer customer = new Customer(nextId++, name, gender, umur);
-                    customers.add(customer);
-                    tableModel.addRow(new Object[]{
-                            customer.getId(), customer.getName(), customer.getGenderString(), customer.getumur()
-                    });
+                    // Insert
+                    insertCustomer(name, genderBool, umur);
                     JOptionPane.showMessageDialog(this, "Data berhasil ditambahkan.");
                 }
-
-                nameField.setText("");
-                genderField.setSelectedIndex(0);
-                umurField.setText("");
+                clearForm();
+                loadCustomerData();
             } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(this, "Umur harus berupa angka!");
+                JOptionPane.showMessageDialog(this, "Umur harus berupa angka!", "Error", JOptionPane.ERROR_MESSAGE);
             }
         });
 
-     
+        // Tombol Edit (isi form dari tabel)
         editButton.addActionListener(e -> {
             int selectedRow = customerTable.getSelectedRow();
             if (selectedRow != -1) {
-                nameField.setText((String) tableModel.getValueAt(selectedRow, 1));
-                genderField.setSelectedItem(tableModel.getValueAt(selectedRow, 2));
-                umurField.setText(String.valueOf(tableModel.getValueAt(selectedRow, 3)));
+                nameField.setText(tableModel.getValueAt(selectedRow, 1).toString());
+                genderField.setSelectedItem(
+                    ((String)tableModel.getValueAt(selectedRow, 2)).equals("Laki-laki") ? "Laki-laki" : "Perempuan"
+                );
+                umurField.setText(tableModel.getValueAt(selectedRow, 3).toString());
             } else {
-                JOptionPane.showMessageDialog(this, "Pilih data customer yang ingin diedit.");
+                JOptionPane.showMessageDialog(this, "Pilih baris yang ingin diedit!", "Peringatan", JOptionPane.WARNING_MESSAGE);
             }
         });
 
-       
+        // Tombol Hapus
         deleteButton.addActionListener(e -> {
             int selectedRow = customerTable.getSelectedRow();
             if (selectedRow != -1) {
-                customers.remove(selectedRow);
-                tableModel.removeRow(selectedRow);
-                nameField.setText("");
-                genderField.setSelectedIndex(0);
-                umurField.setText("");
+                int id = Integer.parseInt(tableModel.getValueAt(selectedRow, 0).toString());
+                int confirm = JOptionPane.showConfirmDialog(this, "Yakin ingin menghapus data ini?", "Konfirmasi", JOptionPane.YES_NO_OPTION);
+                if (confirm == JOptionPane.YES_OPTION) {
+                    deleteCustomer(id);
+                    loadCustomerData();
+                    clearForm();
+                }
             } else {
-                JOptionPane.showMessageDialog(this, "Pilih data customer yang ingin dihapus.");
+                JOptionPane.showMessageDialog(this, "Pilih baris yang ingin dihapus!", "Peringatan", JOptionPane.WARNING_MESSAGE);
             }
         });
+    }
+
+    // Ambil data customer dari database dan tampilkan di tabel
+    private void loadCustomerData() {
+        tableModel.setRowCount(0);
+        try (Connection conn = DBUtil.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT * FROM customer")) {
+            while (rs.next()) {
+                Vector<Object> row = new Vector<>();
+                row.add(rs.getInt("id"));
+                row.add(rs.getString("name"));
+                row.add(rs.getBoolean("gender") ? "Laki-laki" : "Perempuan");
+                row.add(rs.getInt("umur"));
+                tableModel.addRow(row);
+            }
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Gagal load data: " + e.getMessage());
+        }
+    }
+
+    // Insert customer ke database
+    private void insertCustomer(String name, boolean gender, int umur) {
+        try (Connection conn = DBUtil.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "INSERT INTO customer (name, gender, umur) VALUES (?, ?, ?)")) {
+            stmt.setString(1, name);
+            stmt.setBoolean(2, gender);
+            stmt.setInt(3, umur);
+            stmt.executeUpdate();
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Gagal tambah customer: " + e.getMessage());
+        }
+    }
+
+    // Update customer di database
+    private void updateCustomer(int id, String name, boolean gender, int umur) {
+        try (Connection conn = DBUtil.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "UPDATE customer SET name=?, gender=?, umur=? WHERE id=?")) {
+            stmt.setString(1, name);
+            stmt.setBoolean(2, gender);
+            stmt.setInt(3, umur);
+            stmt.setInt(4, id);
+            stmt.executeUpdate();
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Gagal update customer: " + e.getMessage());
+        }
+    }
+
+    // Hapus customer dari database
+    private void deleteCustomer(int id) {
+        try (Connection conn = DBUtil.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "DELETE FROM customer WHERE id=?")) {
+            stmt.setInt(1, id);
+            stmt.executeUpdate();
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Gagal hapus customer: " + e.getMessage());
+        }
+    }
+
+    // Bersihkan form
+    private void clearForm() {
+        nameField.setText("");
+        genderField.setSelectedIndex(0);
+        umurField.setText("");
+        customerTable.clearSelection();
     }
 }

@@ -1,90 +1,167 @@
 package com.mycompany.mavenproject3;
 
-import javax.swing.*;
+import java.awt.BorderLayout;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Vector;
+
+import javax.swing.JButton;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
+import javax.swing.JTextField;
 import javax.swing.table.DefaultTableModel;
-import java.awt.*;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.util.Date;
-import java.util.List;
-import java.text.NumberFormat;
-import java.util.Locale;
 
 public class SalesReportForm extends JFrame {
-    private DefaultTableModel model;
-    private JTable table;
-    private List<SaleRecord> sales;
-    private JSpinner fromDateSpinner;
-    private JSpinner toDateSpinner;
-    private JLabel subtotalLabel;
+    private JTable saleTable;
+    private DefaultTableModel tableModel;
+    private JTextField productNameField;
+    private JTextField qtyField;
+    private JTextField priceField;
+    private JTextField customerNameField;
+    private JButton saveButton;
+    private JButton deleteButton;
 
-    public SalesReportForm(List<SaleRecord> sales) {
-        this.sales = sales;
-        setTitle("Laporan Penjualan");
-        setSize(900, 500);
+    public SalesReportForm(Mavenproject3 mainApp) {
+        setTitle("WK. Cuan | Data Penjualan");
+        setSize(700, 400);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        String[] columns = {"Tanggal & Waktu", "Customer", "Produk", "Qty", "Harga Satuan", "Total"};
-        model = new DefaultTableModel(columns, 0);
-        table = new JTable(model);
+        JPanel formPanel = new JPanel();
+        formPanel.add(new JLabel("Produk:"));
+        productNameField = new JTextField(10);
+        formPanel.add(productNameField);
 
-        JPanel filterPanel = new JPanel();
-        filterPanel.add(new JLabel("Dari:"));
-        fromDateSpinner = new JSpinner(new SpinnerDateModel());
-        fromDateSpinner.setEditor(new JSpinner.DateEditor(fromDateSpinner, "yyyy-MM-dd"));
-        filterPanel.add(fromDateSpinner);
+        formPanel.add(new JLabel("Qty:"));
+        qtyField = new JTextField(5);
+        formPanel.add(qtyField);
 
-        filterPanel.add(new JLabel("Sampai:"));
-        toDateSpinner = new JSpinner(new SpinnerDateModel());
-        toDateSpinner.setEditor(new JSpinner.DateEditor(toDateSpinner, "yyyy-MM-dd"));
-        filterPanel.add(toDateSpinner);
+        formPanel.add(new JLabel("Harga:"));
+        priceField = new JTextField(7);
+        formPanel.add(priceField);
 
-        JButton filterButton = new JButton("Tampilkan");
-        filterPanel.add(filterButton);
+        formPanel.add(new JLabel("Customer:"));
+        customerNameField = new JTextField(10);
+        formPanel.add(customerNameField);
 
-        filterButton.addActionListener(e -> loadFilteredData());
+        saveButton = new JButton("Simpan");
+        formPanel.add(saveButton);
 
-        add(filterPanel, BorderLayout.NORTH);
-        add(new JScrollPane(table), BorderLayout.CENTER);
+        deleteButton = new JButton("Hapus");
+        formPanel.add(deleteButton);
 
-        subtotalLabel = new JLabel("Subtotal: Rp 0");
-        subtotalLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
-        JPanel subtotalPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        subtotalPanel.add(subtotalLabel);
-        add(subtotalPanel, BorderLayout.SOUTH);
+        tableModel = new DefaultTableModel(new String[]{"ID", "Produk", "Qty", "Harga", "Customer", "Tanggal"}, 0);
+        saleTable = new JTable(tableModel);
+        loadSaleData();
 
-        loadFilteredData();
+        add(formPanel, BorderLayout.NORTH);
+        add(new JScrollPane(saleTable), BorderLayout.CENTER);
+
+        // Tombol Simpan (Insert)
+        saveButton.addActionListener(e -> {
+            String product = productNameField.getText();
+            String qtyText = qtyField.getText();
+            String priceText = priceField.getText();
+            String customer = customerNameField.getText();
+
+            if (product.isEmpty() || qtyText.isEmpty() || priceText.isEmpty() || customer.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Semua field harus diisi!", "Peringatan", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            try {
+                int qty = Integer.parseInt(qtyText);
+                double price = Double.parseDouble(priceText);
+                String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                insertSaleRecord(product, qty, price, customer, dateTime);
+                JOptionPane.showMessageDialog(this, "Data berhasil ditambahkan.");
+                clearForm();
+                loadSaleData();
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(this, "Qty dan harga harus berupa angka!", "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
+        // Tombol Hapus
+        deleteButton.addActionListener(e -> {
+            int selectedRow = saleTable.getSelectedRow();
+            if (selectedRow != -1) {
+                int id = Integer.parseInt(tableModel.getValueAt(selectedRow, 0).toString());
+                int confirm = JOptionPane.showConfirmDialog(this, "Yakin ingin menghapus data ini?", "Konfirmasi", JOptionPane.YES_NO_OPTION);
+                if (confirm == JOptionPane.YES_OPTION) {
+                    deleteSaleRecord(id);
+                    loadSaleData();
+                    clearForm();
+                }
+            } else {
+                JOptionPane.showMessageDialog(this, "Pilih baris yang ingin dihapus!", "Peringatan", JOptionPane.WARNING_MESSAGE);
+            }
+        });
     }
 
-    private void loadFilteredData() {
-        model.setRowCount(0);
-        double subtotal = 0;
-        NumberFormat rupiahFormat = NumberFormat.getCurrencyInstance(new Locale("id", "ID"));
-
-        Date fromDate = (Date) fromDateSpinner.getValue();
-        Date toDate = (Date) toDateSpinner.getValue();
-
-        for (SaleRecord s : sales) {
-            LocalDate saleDate = s.getDateTimeObj().toLocalDate();
-            boolean include = true;
-            if (fromDate != null && saleDate.isBefore(fromDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDate())) include = false;
-            if (toDate != null && saleDate.isAfter(toDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDate())) include = false;
-
-            if (include) {
-                String hargaSatuan = rupiahFormat.format(s.getPrice()).replace(",00", "");
-                String total = rupiahFormat.format(s.getTotal()).replace(",00", "");
-                model.addRow(new Object[]{
-                    s.getDateTime(),
-                    s.getCustomerName() == null ? "-" : s.getCustomerName(),
-                    s.getProductName(),
-                    s.getQty(),
-                    hargaSatuan,
-                    total
-                });
-                subtotal += s.getTotal();
+    // Ambil data penjualan dari database dan tampilkan di tabel
+    private void loadSaleData() {
+        tableModel.setRowCount(0);
+        try (Connection conn = DBUtil.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT * FROM sale_record")) {
+            while (rs.next()) {
+                Vector<Object> row = new Vector<>();
+                row.add(rs.getInt("id"));
+                row.add(rs.getString("product_name"));
+                row.add(rs.getInt("qty"));
+                row.add(rs.getDouble("price"));
+                row.add(rs.getString("customer_name"));
+                row.add(rs.getString("date_time"));
+                tableModel.addRow(row);
             }
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Gagal load data: " + e.getMessage());
         }
-        subtotalLabel.setText("Subtotal: " + rupiahFormat.format(subtotal).replace(",00", ""));
+    }
+
+    // Insert sale record ke database
+    private void insertSaleRecord(String product, int qty, double price, String customer, String dateTime) {
+        try (Connection conn = DBUtil.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "INSERT INTO sale_record (product_name, qty, price, customer_name, date_time) VALUES (?, ?, ?, ?, ?)")) {
+            stmt.setString(1, product);
+            stmt.setInt(2, qty);
+            stmt.setDouble(3, price);
+            stmt.setString(4, customer);
+            stmt.setString(5, dateTime);
+            stmt.executeUpdate();
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Gagal tambah penjualan: " + e.getMessage());
+        }
+    }
+
+    // Hapus sale record dari database
+    private void deleteSaleRecord(int id) {
+        try (Connection conn = DBUtil.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "DELETE FROM sale_record WHERE id=?")) {
+            stmt.setInt(1, id);
+            stmt.executeUpdate();
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Gagal hapus penjualan: " + e.getMessage());
+        }
+    }
+
+    // Bersihkan form
+    private void clearForm() {
+        productNameField.setText("");
+        qtyField.setText("");
+        priceField.setText("");
+        customerNameField.setText("");
+        saleTable.clearSelection();
     }
 }

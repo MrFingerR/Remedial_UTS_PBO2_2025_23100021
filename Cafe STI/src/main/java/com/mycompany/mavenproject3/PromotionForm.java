@@ -3,109 +3,169 @@ package com.mycompany.mavenproject3;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.util.List;
+import java.sql.*;
+import java.util.Vector;
 
 public class PromotionForm extends JFrame {
     private JTable promoTable;
     private DefaultTableModel tableModel;
-    private JComboBox<String> productField;
+    private JTextField productNameField;
     private JTextField discountField;
-    private JButton saveButton, editButton, deleteButton;
-    private List<Product> products;
-    private List<Promotion> promotions;
+    private JButton saveButton;
+    private JButton editButton;
+    private JButton deleteButton;
 
-    public PromotionForm(List<Product> products, List<Promotion> promotions) {
-        this.products = products;
-        this.promotions = promotions;
-
-        setTitle("Pengaturan Diskon & Promosi");
+    public PromotionForm(Mavenproject3 mainApp) {
+        setTitle("WK. Cuan | Data Promosi");
         setSize(500, 350);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setLocationRelativeTo(null);
-        setLayout(new BorderLayout());
 
         JPanel formPanel = new JPanel();
         formPanel.add(new JLabel("Produk:"));
-        productField = new JComboBox<>();
-        for (Product p : products) {
-            productField.addItem(p.getName());
-        }
-        formPanel.add(productField);
+        productNameField = new JTextField(10);
+        formPanel.add(productNameField);
 
         formPanel.add(new JLabel("Diskon (%):"));
         discountField = new JTextField(5);
         formPanel.add(discountField);
 
         saveButton = new JButton("Simpan");
-        editButton = new JButton("Edit");
-        deleteButton = new JButton("Hapus");
         formPanel.add(saveButton);
+
+        editButton = new JButton("Edit");
         formPanel.add(editButton);
+
+        deleteButton = new JButton("Hapus");
         formPanel.add(deleteButton);
 
-        add(formPanel, BorderLayout.NORTH);
-
-        tableModel = new DefaultTableModel(new String[]{"Produk", "Diskon (%)"}, 0);
+        tableModel = new DefaultTableModel(new String[]{"ID", "Produk", "Diskon (%)"}, 0);
         promoTable = new JTable(tableModel);
-        loadPromoData();
+        loadPromotionData();
 
+        add(formPanel, BorderLayout.NORTH);
         add(new JScrollPane(promoTable), BorderLayout.CENTER);
 
+        // Tombol Simpan (Insert/Update)
         saveButton.addActionListener(e -> {
-            String product = (String) productField.getSelectedItem();
+            String product = productNameField.getText();
             String discountText = discountField.getText();
-            if (discountText.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Diskon harus diisi!");
+
+            if (product.isEmpty() || discountText.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Semua field harus diisi!", "Peringatan", JOptionPane.WARNING_MESSAGE);
                 return;
             }
+
             try {
                 double discount = Double.parseDouble(discountText);
-                if (discount < 0 || discount > 100) {
-                    JOptionPane.showMessageDialog(this, "Diskon harus 0-100!");
-                    return;
-                }
+
                 int selectedRow = promoTable.getSelectedRow();
                 if (selectedRow != -1) {
-                    promotions.get(selectedRow).setDiscountPercent(discount);
-                    tableModel.setValueAt(discount, selectedRow, 1);
-                    JOptionPane.showMessageDialog(this, "Diskon diperbarui.");
+                    // Update
+                    int id = Integer.parseInt(tableModel.getValueAt(selectedRow, 0).toString());
+                    updatePromotion(id, product, discount);
+                    JOptionPane.showMessageDialog(this, "Data berhasil diperbarui.");
                 } else {
-                    promotions.add(new Promotion(product, discount));
-                    tableModel.addRow(new Object[]{product, discount});
-                    JOptionPane.showMessageDialog(this, "Diskon ditambahkan.");
+                    // Insert
+                    insertPromotion(product, discount);
+                    JOptionPane.showMessageDialog(this, "Data berhasil ditambahkan.");
                 }
-                discountField.setText("");
+                clearForm();
+                loadPromotionData();
             } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(this, "Diskon harus berupa angka!");
+                JOptionPane.showMessageDialog(this, "Diskon harus berupa angka!", "Error", JOptionPane.ERROR_MESSAGE);
             }
         });
 
+        // Tombol Edit (isi form dari tabel)
         editButton.addActionListener(e -> {
             int selectedRow = promoTable.getSelectedRow();
             if (selectedRow != -1) {
-                productField.setSelectedItem(tableModel.getValueAt(selectedRow, 0));
-                discountField.setText(tableModel.getValueAt(selectedRow, 1).toString());
+                productNameField.setText(tableModel.getValueAt(selectedRow, 1).toString());
+                discountField.setText(tableModel.getValueAt(selectedRow, 2).toString());
             } else {
-                JOptionPane.showMessageDialog(this, "Pilih data yang ingin diedit.");
+                JOptionPane.showMessageDialog(this, "Pilih baris yang ingin diedit!", "Peringatan", JOptionPane.WARNING_MESSAGE);
             }
         });
 
+        // Tombol Hapus
         deleteButton.addActionListener(e -> {
             int selectedRow = promoTable.getSelectedRow();
             if (selectedRow != -1) {
-                promotions.remove(selectedRow);
-                tableModel.removeRow(selectedRow);
-                discountField.setText("");
+                int id = Integer.parseInt(tableModel.getValueAt(selectedRow, 0).toString());
+                int confirm = JOptionPane.showConfirmDialog(this, "Yakin ingin menghapus data ini?", "Konfirmasi", JOptionPane.YES_NO_OPTION);
+                if (confirm == JOptionPane.YES_OPTION) {
+                    deletePromotion(id);
+                    loadPromotionData();
+                    clearForm();
+                }
             } else {
-                JOptionPane.showMessageDialog(this, "Pilih data yang ingin dihapus.");
+                JOptionPane.showMessageDialog(this, "Pilih baris yang ingin dihapus!", "Peringatan", JOptionPane.WARNING_MESSAGE);
             }
         });
     }
 
-    private void loadPromoData() {
+    // Ambil data promosi dari database dan tampilkan di tabel
+    private void loadPromotionData() {
         tableModel.setRowCount(0);
-        for (Promotion promo : promotions) {
-            tableModel.addRow(new Object[]{promo.getProductName(), promo.getDiscountPercent()});
+        try (Connection conn = DBUtil.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT * FROM promotion")) {
+            while (rs.next()) {
+                Vector<Object> row = new Vector<>();
+                row.add(rs.getInt("id"));
+                row.add(rs.getString("product_name"));
+                row.add(rs.getDouble("discount_percent"));
+                tableModel.addRow(row);
+            }
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Gagal load data: " + e.getMessage());
         }
+    }
+
+    // Insert promotion ke database
+    private void insertPromotion(String product, double discount) {
+        try (Connection conn = DBUtil.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "INSERT INTO promotion (product_name, discount_percent) VALUES (?, ?)")) {
+            stmt.setString(1, product);
+            stmt.setDouble(2, discount);
+            stmt.executeUpdate();
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Gagal tambah promosi: " + e.getMessage());
+        }
+    }
+
+    // Update promotion di database
+    private void updatePromotion(int id, String product, double discount) {
+        try (Connection conn = DBUtil.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "UPDATE promotion SET product_name=?, discount_percent=? WHERE id=?")) {
+            stmt.setString(1, product);
+            stmt.setDouble(2, discount);
+            stmt.setInt(3, id);
+            stmt.executeUpdate();
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Gagal update promosi: " + e.getMessage());
+        }
+    }
+
+    // Hapus promotion dari database
+    private void deletePromotion(int id) {
+        try (Connection conn = DBUtil.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "DELETE FROM promotion WHERE id=?")) {
+            stmt.setInt(1, id);
+            stmt.executeUpdate();
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Gagal hapus promosi: " + e.getMessage());
+        }
+    }
+
+    // Bersihkan form
+    private void clearForm() {
+        productNameField.setText("");
+        discountField.setText("");
+        promoTable.clearSelection();
     }
 }
